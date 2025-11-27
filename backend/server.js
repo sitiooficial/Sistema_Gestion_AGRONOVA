@@ -27,7 +27,7 @@ app.use("/", express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 
-const cors = require('cors');
+
 app.use(cors({
     origin: '*',
     credentials: true
@@ -40,3 +40,4 @@ app.listen(PORT, async () => {
   console.log("✅ Base de datos: Conectada");
   console.log("============================================");
 });
+
