@@ -15,8 +15,7 @@ app.use(cors({
   credentials: true
 }));
 
-// ---------- DB ----------
-const db = require("./database"); // asegúrate que ./database exporte la conexión y cree tablas
+
 
 // ---------- MIDDLEWARES PERSONALIZADOS (NO registrar todo el objeto) ----------
 const middleware = require("./middleware");
@@ -26,19 +25,40 @@ if (typeof middleware.sanitizeBody === 'function') {
 }
 // no hagas app.use(middleware) porque middleware es un objeto con funciones.
 
-// ---------- RUTAS API ----------
-try {
-  app.use("/api/auth", require("./routes/auth"));
-  app.use("/api/products", require("./routes/products"));
-  app.use("/api/cart", require("./routes/cart"));
-  app.use("/api/orders", require("./routes/orders"));
-  app.use("/api/stats", require("./routes/stats"));
-  app.use("/api/users", require("./routes/users"));
-  app.use("/api/payments", require("./routes/payments"));
-  app.use("/api/inventario", require("./routes/inventario.routes")); // si existe
-} catch (err) {
-  console.error("❌ Error cargando rutas:", err);
-}
+
+
+// =====================================
+// Inicializar DB en memoria
+// =====================================
+const db = require("./database"); // usuarios, productos, ventas, carritos
+console.log("🗄️ Base de datos cargada:");
+console.log("Usuarios:", db.users.length);
+console.log("Productos:", db.products.length);
+console.log("Ventas:", db.sales.length);
+
+// =====================================
+// Servidor
+// =====================================
+const app = express();
+app.use(cors({ origin: "*", credentials: true }));
+app.use(express.json());
+
+// =====================================
+// Rutas
+// =====================================
+app.use("/api/auth", require("./routes/auth"));
+app.use("/api/products", require("./routes/products"));
+app.use("/api/cart", require("./routes/cart"));
+app.use("/api/sales", require("./routes/sales"));
+
+// =====================================
+// Servir frontend
+// =====================================
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+
+// =====================================
+
 
 // ---------- SERVIR FRONTEND (public) ----------
 const publicPath = path.join(__dirname, "public");
@@ -67,3 +87,4 @@ app.listen(PORT, () => {
   console.log("🗄️ Base de datos SQLite: Conectada (ver ./database)");
   console.log("============================================");
 });
+
