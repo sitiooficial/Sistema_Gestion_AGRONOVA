@@ -34,7 +34,14 @@ let __hideTimer = null;
 // ============================================
 // LOADER GLOBAL: interceptar window.fetch
 // ============================================
+(function () {
+    const loc = window.location;
+    const backend = `${loc.protocol}//${loc.hostname}:${loc.port || ''}`;
 
+    window.API_BASE = backend + "/api";
+
+    console.log("🌐 AGROMARKET conectado a backend:", window.API_BASE);
+})();
 (function installGlobalFetchInterceptor() {
   if (!window.fetch) return; // browsers very old
 
