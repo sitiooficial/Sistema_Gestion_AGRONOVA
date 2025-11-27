@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dashboard Administrativo</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+/* RESET */
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* PALETA ORIGINAL */
+:root{
+  --primary:#10b981;
+  --primary-dark:#059669;
+  --light:#f3f4f6;
+  --white:#ffffff;
+  --shadow:0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* BODY */
+body{
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg,#10b981 0%,#059669 100%);
+  min-height:100vh;
+  color:#1f2937;
+  padding-bottom:40px;
+}
+
+/* HEADER */
+header{ background:var(--white); padding:18px 20px; box-shadow:var(--shadow); text-align:center; position:sticky; top:0; z-index:20}
+header h1{ color:var(--primary-dark); font-weight:800; font-size:20px; }
+
+/* LAYOUT */
+.container-main{ max-width:1200px; margin:18px auto; }
+
+/* SCROLL AREA */
+.grid-scroll {
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  padding: 24px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* GRID */
+.grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit,minmax(330px,1fr));
+  gap:22px;
+}
+
+/* CARDS */
+.card {
+  background:var(--white);
+  border-radius:10px;
+  padding:28px;
+  box-shadow:var(--shadow);
+  transition: transform .18s;
+  min-height:180px;
+}
+.card:hover{ transform:translateY(-6px) }
+
+.card h2{ color:var(--primary-dark); font-size:20px; margin-bottom:12px }
+
+/* BUTTONS */
+.btn-primary-custom{
+  background:var(--primary);
+  color:#fff;
+  border:none;
+  padding:10px 14px;
+  border-radius:8px;
+}
+.btn-primary-custom:hover{ background:var(--primary-dark) }
+
+/* INVENTORY TABLE SPECIFIC */
+.table-inv { width:100%; border-collapse:collapse; }
+.table-inv th, .table-inv td { padding:10px; border-bottom:1px solid #eef2f6; text-align:left; font-size:14px; }
+.actions-btn { display:flex; gap:8px; }
+
+/* MODALS overrides */
+.modal .modal-header { background:#f8fafc; }
+.form-row { margin-bottom:12px; }
+
+/* RESPONSIVE tweaks */
+@media (max-width:768px){
+  .grid { grid-template-columns: 1fr; padding:0; }
+  .container-main { padding: 0 12px; }
+}
+</style>
+</head>
+<body>
+
+<header><h1>📊 Dashboard Administrativo — Reportes & Inventario</h1></header>
+
+<div class="container-main">
+
+  <!-- CONTENEDOR CON SCROLL -->
+  <div class="grid-scroll">
+    <div class="grid">
+
+      <!-- REPORT: VENTAS (GRÁFICO) -->
+      <div class="card">
+        <h2>Ventas (últimos 7 días)</h2>
+        <canvas id="chartSales" height="140"></canvas>
+      </div>
+
+      <!-- REPORT: INGRESOS -->
+      <div class="card">
+        <h2>Ingresos Totales (últimos 7 días)</h2>
+        <canvas id="chartRevenue" height="140"></canvas>
+      </div>
+
+      <!-- REPORT: USUARIOS -->
+      <div class="card">
+        <h2>Nuevos Usuarios (últimos 7 días)</h2>
+        <canvas id="chartUsers" height="140"></canvas>
+      </div>
+
+      <!-- KPI: Resumen rápido -->
+      <div class="card">
+        <h2>KPIs</h2>
+        <p><strong>Ingresos totales:</strong> <span id="totalRevenue">Cargando...</span></p>
+        <p><strong>Pedidos totales:</strong> <span id="totalOrders">Cargando...</span></p>
+        <p><strong>Usuarios nuevos:</strong> <span id="newUsers">Cargando...</span></p>
+      </div>
+
+      <!-- INVENTARIO: CRUD -->
+      <div class="card">
+        <h2>Inventario</h2>
+
+        <div style="margin-bottom:10px; display:flex; gap:10px;">
+          <button class="btn-primary-custom" id="btnAddProduct">+ Nuevo producto</button>
+          <button class="btn btn-outline-secondary" id="btnRefreshInventory">Actualizar</button>
+        </div>
+
+        <div style="overflow:auto; max-height:300px;">
+          <table class="table-inv" id="inventoryTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>Nombre</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBody">
+              <!-- llenado por JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- IA: predicción & recomendación -->
+      <div class="card">
+        <h2>IA - Predicción & Recomendación</h2>
+        <p><strong>Predicción:</strong> <span id="predictionIA">Cargando...</span></p>
+        <p><strong>Recomendación:</strong> <span id="recommendIA">Cargando...</span></p>
+      </div>
+
+      <!-- Export / utilidades -->
+      <div class="card">
+        <h2>Exportar</h2>
+        <div style="display:grid; gap:10px;">
+          <button class="btn-primary-custom" id="btnExportPDF">📄 Exportar PDF</button>
+          <button class="btn-primary-custom" id="btnExportExcel">📥 Exportar Excel</button>
+        </div>
+      </div>
+
+    </div> <!-- end grid -->
+  </div> <!-- end grid-scroll -->
+
+</div> <!-- end container-main -->
+
+<!-- MODAL: Add / Edit Product -->
+<div class="modal fade" id="productModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="productModalTitle">Nuevo producto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="productForm">
+          <input type="hidden" id="productIdInput" />
+          <div class="form-row">
+            <label>Nombre</label>
+            <input class="form-control" id="productNameInput" required />
+          </div>
+          <div class="form-row">
+            <label>Categoría</label>
+            <input class="form-control" id="productCategoryInput" />
+          </div>
+          <div class="form-row">
+            <label>Precio</label>
+            <input type="number" step="0.01" class="form-control" id="productPriceInput" />
+          </div>
+          <div class="form-row">
+            <label>Stock</label>
+            <input type="number" class="form-control" id="productStockInput" />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="saveProductBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Confirm Delete -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Confirmar eliminación</h6></div>
+      <div class="modal-body">
+        <p id="confirmDeleteText">¿Eliminar producto?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- Helpers ---------- */
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const api = {
+  products: '/api/products',
+  stats: '/api/stats',
+  aiPredict: '/api/stats/ai/predict',
+  aiRecommend: '/api/stats/ai/recommend'
+};
+
+let chartSales, chartRevenue, chartUsers;
+
+function createLineChart(ctx, labels, data, label, color){
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label, data, fill:true, backgroundColor: hexToRgba(color,0.08), borderColor: color, tension:0.25, pointRadius:3 }]},
+    options: {
+      responsive:true,
+      plugins:{legend:{display:false}},
+      scales:{ x:{grid:{display:false}}, y:{beginAtZero:true, grid:{color:'#f0f4f6'}}}
+    }
+  });
+}
+
+function hexToRgba(hex, alpha=1){
+  const h = hex.replace('#','');
+  const r = parseInt(h.substring(0,2),16);
+  const g = parseInt(h.substring(2,4),16);
+  const b = parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+async function fetchJson(url, opts){
+  try {
+    const res = await fetch(url, opts);
+    if(!res.ok) throw new Error('network');
+    return await res.json();
+  } catch(e) {
+    return null;
+  }
+}
+
+async function loadStats(){
+  const stats = await fetchJson(api.stats) || null;
+
+  const demoLabels = lastNDays(7);
+  const demoSales = [12,18,9,22,28,20,24];
+  const demoRevenue = [1200,1800,900,2200,2800,2000,2400];
+  const demoUsers = [2,4,1,5,3,3,2];
+  const labels = stats?.labels || demoLabels;
+  const sales = stats?.sales || demoSales;
+  const revenue = stats?.revenue || demoRevenue;
+  const users = stats?.users || demoUsers;
+
+  $('#totalRevenue').textContent = stats?.totalRevenue ? `S/ ${Number(stats.totalRevenue).toFixed(2)}` : `S/ ${sumArray(revenue).toFixed(2)}`;
+  $('#totalOrders').textContent = stats?.totalOrders ?? sales.reduce((a,b)=>a+b,0);
+  $('#newUsers').textContent = stats?.newUsers ?? users.reduce((a,b)=>a+b,0);
+
+  const ctxS = document.getElementById('chartSales').getContext('2d');
+  const ctxR = document.getElementById('chartRevenue').getContext('2d');
+  const ctxU = document.getElementById('chartUsers').getContext('2d');
+
+  if(chartSales) chartSales.destroy();
+  if(chartRevenue) chartRevenue.destroy();
+  if(chartUsers) chartUsers.destroy();
+
+  chartSales = createLineChart(ctxS, labels, sales, 'Ventas', getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#10b981');
+  chartRevenue = createLineChart(ctxR, labels, revenue, 'Ingresos', '#3b82f6');
+  chartUsers = createLineChart(ctxU, labels, users, 'Usuarios', '#f59e0b');
+
+  const pred = await fetchJson(api.aiPredict) || { message: 'Sin datos IA (demo): +12%' };
+  const rec = await fetchJson(api.aiRecommend) || { message: 'Reponer: Tomate (stock 3) — demo' };
+  $('#predictionIA').textContent = pred.message ?? pred;
+  $('#recommendIA').textContent = rec.message ?? rec;
+}
+
+/* INVENTORY CRUD */
+let currentDeleteId = null;
+
+async function loadInventory(){
+  const data = await fetchJson(api.products) || null;
+  const products = data?.data || demoProducts();
+  const tbody = $('#inventoryBody');
+  tbody.innerHTML = products.map(p => `
+    <tr data-id="${p.id}">
+      <td>${p.id}</td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.category ?? '')}</td>
+      <td>S/ ${Number(p.price ?? 0).toFixed(2)}</td>
+      <td>${p.stock ?? 0}</td>
+      <td>
+        <div class="actions-btn">
+          <button class="btn btn-sm btn-outline-primary" data-act="edit" data-id="${p.id}">Editar</button>
+          <button class="btn btn-sm btn-outline-danger" data-act="delete" data-id="${p.id}">Eliminar</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openProductModal(mode='create', product = null){
+  $('#productModalTitle').textContent = mode === 'create' ? 'Nuevo producto' : 'Editar producto';
+  $('#productIdInput').value = product?.id ?? '';
+  $('#productNameInput').value = product?.name ?? '';
+  $('#productCategoryInput').value = product?.category ?? '';
+  $('#productPriceInput').value = product?.price ?? '';
+  $('#productStockInput').value = product?.stock ?? '';
+  const modal = new bootstrap.Modal(document.getElementById('productModal'));
+  modal.show();
+}
+
+async function saveProduct(){
+  const id = $('#productIdInput').value;
+  const payload = {
+    name: $('#productNameInput').value,
+    category: $('#productCategoryInput').value,
+    price: Number($('#productPriceInput').value) || 0,
+    stock: Number($('#productStockInput').value) || 0
+  };
+
+  try {
+    if(!payload.name){ alert('Nombre requerido'); return; }
+
+    if(id){
+      const res = await fetch(`${api.products}/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      if(!res.ok) throw new Error('error update');
+    } else {
+      const res = await fetch(api.products, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      if(!res.ok) throw new Error('error create');
+    }
+  } catch(e){
+    console.warn('API create/update failed — usando demo', e);
+  } finally {
+    bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
+    await loadInventory();
+    await loadStats();
+  }
+}
+
+function openDeleteModal(id, name){
+  currentDeleteId = id;
+  $('#confirmDeleteText').textContent = `Eliminar "${name}" (ID ${id})?`;
+  const m = new bootstrap.Modal(document.getElementById('confirmDeleteModal'));
+  m.show();
+}
+
+async function confirmDelete(){
+  const id = currentDeleteId;
+  try {
+    const res = await fetch(`${api.products}/${id}`, { method:'DELETE' });
+    if(!res.ok) throw new Error('delete failed');
+  } catch(e){
+    console.warn('API delete failed — no se pudo eliminar remotamente', e);
+  } finally {
+    bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal')).hide();
+    currentDeleteId = null;
+    await loadInventory();
+    await loadStats();
+  }
+}
+
+/* Utilities */
+function demoProducts(){
+  return [
+    { id:1, name:'Tomate', category:'Verduras', price:3.5, stock:12 },
+    { id:2, name:'Papa', category:'Tubérculos', price:2.1, stock:5 },
+    { id:3, name:'Maíz', category:'Granos', price:1.2, stock:20 },
+  ];
+}
+
+function lastNDays(n){
+  const arr=[]; for(let i=n-1;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); arr.push(d.toLocaleDateString()); } return arr;
+}
+function sumArray(a){ return a.reduce((s,v)=>s+Number(v||0),0) }
+function escapeHtml(s){ if(!s) return ''; return s.toString().replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadStats();
+  await loadInventory();
+
+  $('#btnAddProduct').addEventListener('click', ()=> openProductModal('create'));
+
+  $('#saveProductBtn').addEventListener('click', (e)=>{
+    e.preventDefault();
+    saveProduct();
+  });
+
+  $('#btnRefreshInventory').addEventListener('click', loadInventory);
+
+  $('#inventoryBody').addEventListener('click', async (ev)=>{
+    const btn = ev.target.closest('button');
+    if(!btn) return;
+    const act = btn.getAttribute('data-act');
+    const id = btn.getAttribute('data-id');
+    if(act === 'edit'){
+      const res = await fetchJson(`${api.products}/${id}`) || null;
+      const product = res?.data || demoProducts().find(p=>String(p.id)===String(id)) || { id };
+      openProductModal('edit', product);
+    } else if(act === 'delete'){
+      const tr = btn.closest('tr');
+      const name = tr ? tr.children[1].textContent : 'producto';
+      openDeleteModal(id, name);
+    }
+  });
+
+  $('#confirmDeleteBtn').addEventListener('click', confirmDelete);
+
+  $('#btnExportPDF').addEventListener('click', () => window.print());
+  $('#btnExportExcel').addEventListener('click', () => {
+    const rows = [['ID','Nombre','Categoria','Precio','Stock']];
+    $$('#inventoryBody tr').forEach(tr=>{
+      const cells = Array.from(tr.children).slice(0,5).map(td=>td.textContent.trim().replace('S/','').trim());
+      rows.push(cells);
+    });
+    const csv = rows.map(r=>r.map(v=>`"${v.replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'inventario.csv'; a.click(); URL.revokeObjectURL(url);
+  });
+});
+</script>
+
+</body>
+</html>
