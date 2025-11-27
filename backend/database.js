@@ -1,44 +1,37 @@
-/**
- * ============================================
- * DATABASE - database.js
- * Gestión centralizada de SQLite
- * ============================================
- */
+const path = require("path");
+const bcrypt = require("bcrypt");
+const sqlite3 = require("sqlite3").verbose();
 
-const path = require('path');
-const bcrypt = require('bcrypt');
-const sqlite3 = require('sqlite3').verbose();
-
-const DB_PATH = path.join(__dirname, 'agromarket.db');
+const DB_PATH = path.join(__dirname, "agromarket.db");
 
 let db = null;
 
 /* ============================================
-   INICIALIZAR BASE DE DATOS
+   1) INICIALIZAR
 ============================================ */
 
-function initializeDatabase() {
-    if (db !== null) return; // evita doble inicialización
+function initDatabase() {
+    if (db) return;
 
     db = new sqlite3.Database(DB_PATH, (err) => {
         if (err) {
-            console.error("❌ Error conectando a SQLite:", err);
-            return process.exit(1);
+            console.error("❌ Error conectando SQLite:", err);
+            process.exit(1);
         }
-        console.log("✅ SQLite conectado en:", DB_PATH);
+        console.log("✅ SQLite conectado:", DB_PATH);
     });
 
     db.run("PRAGMA foreign_keys = ON");
+
     createTables();
     createDefaultAdmin();
 }
 
 /* ============================================
-   CREACIÓN DE TABLAS
+   2) TABLAS
 ============================================ */
 
 function createTables() {
-
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,67 +61,11 @@ function createTables() {
         )
     `);
 
-    db.run(`
-        CREATE TABLE IF NOT EXISTS inventory_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER NOT NULL,
-            type TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            previous_stock INTEGER NOT NULL,
-            new_stock INTEGER NOT NULL,
-            notes TEXT,
-            created_by INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (product_id) REFERENCES products(id),
-            FOREIGN KEY (created_by) REFERENCES users(id)
-        )
-    `);
-
-    db.run(`
-        CREATE TABLE IF NOT EXISTS sales (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            total REAL NOT NULL,
-            payment_method TEXT NOT NULL,
-            payment_status TEXT DEFAULT 'pending',
-            transaction_id TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-    `);
-
-    db.run(`
-        CREATE TABLE IF NOT EXISTS sale_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sale_id INTEGER NOT NULL,
-            product_id INTEGER NOT NULL,
-            product_name TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            price REAL NOT NULL,
-            subtotal REAL NOT NULL,
-            FOREIGN KEY (sale_id) REFERENCES sales(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        )
-    `);
-
-    db.run(`
-        CREATE TABLE IF NOT EXISTS cart (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            product_id INTEGER NOT NULL,
-            quantity INTEGER NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        )
-    `);
-
-    console.log("✅ Tablas verificadas/creadas");
+    console.log("✅ Tablas verificadas");
 }
 
 /* ============================================
-   CREAR ADMIN POR DEFECTO
+   3) ADMIN DEFAULT
 ============================================ */
 
 function createDefaultAdmin() {
@@ -145,14 +82,12 @@ function createDefaultAdmin() {
             ["Administrador", email, hashed, "admin"]
         );
 
-        console.log("👑 Admin creado:");
-        console.log(`Email: ${email}`);
-        console.log(`Password: ${pass}`);
+        console.log("👑 Admin creado:", email);
     });
 }
 
 /* ============================================
-   FUNCIONES DE USUARIOS
+   4) USUARIOS
 ============================================ */
 
 function createUser(name, email, hashedPassword, role = "customer") {
@@ -165,7 +100,7 @@ function createUser(name, email, hashedPassword, role = "customer") {
             [name, email, hashedPassword, role],
             function (err) {
                 if (err) return reject(err);
-                resolve({ id: this.lastID, name, email, role });
+                resolve({ id: this.lastID });
             }
         );
     });
@@ -190,35 +125,31 @@ function findUserById(id) {
     });
 }
 
-function updateUserResetToken(email, token, expires) {
+/*
+ * ✔️ ESTA ES LA ÚNICA DEFINICIÓN CORRECTA
+ * Guarda token y expiración de recuperación
+ 
+ * Actualiza el token de recuperación y su fecha de expiración
+ */
+function updateUserResetToken(userId, resetToken, expiresAt) {
     return new Promise((resolve, reject) => {
-        db.run(
-            `
-            UPDATE users 
+        const query = `
+            UPDATE users
             SET reset_token = ?, reset_token_expires = ?
-            WHERE email = ?
-        `,
-            [token, expires, email],
-            (err) => (err ? reject(err) : resolve(true))
-        );
+            WHERE id = ?
+        `;
+
+        db.run(query, [resetToken, expiresAt, userId], function (err) {
+            if (err) {
+                console.error("❌ Error al actualizar reset token:", err);
+                return reject(err);
+            }
+            resolve(true);
+        });
     });
 }
-
-function getAllUsers() {
-    return new Promise((resolve, reject) => {
-        db.all(
-            `
-            SELECT id, name, email, role, status, created_at 
-            FROM users 
-            ORDER BY created_at DESC
-        `,
-            (err, rows) => (err ? reject(err) : resolve(rows))
-        );
-    });
-}
-
 /* ============================================
-   FUNCIONES DE PRODUCTOS
+   5) PRODUCTOS
 ============================================ */
 
 function createProduct(data) {
@@ -238,128 +169,22 @@ function createProduct(data) {
             ],
             function (err) {
                 if (err) reject(err);
-                else resolve({ id: this.lastID, ...data });
+                else resolve({ id: this.lastID });
             }
         );
     });
 }
 
-function getAllProducts(filters = {}) {
+function getAllProducts() {
     return new Promise((resolve, reject) => {
-        let query = `SELECT * FROM products WHERE status = 'active'`;
-        const params = [];
-
-        if (filters.category) {
-            query += " AND category = ?";
-            params.push(filters.category);
-        }
-
-        if (filters.search) {
-            query += " AND name LIKE ?";
-            params.push(`%${filters.search}%`);
-        }
-
-        query += " ORDER BY created_at DESC";
-
-        db.all(query, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-        });
-    });
-}
-
-function getProductById(id) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT * FROM products WHERE id = ?", [id], (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-        });
-    });
-}
-
-function updateProduct(id, data) {
-    return new Promise((resolve, reject) => {
-        db.run(
-            `
-            UPDATE products 
-            SET name = ?, category = ?, description = ?, 
-                price = ?, stock = ?, min_stock = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `,
-            [
-                data.name,
-                data.category,
-                data.description,
-                data.price,
-                data.stock,
-                data.min_stock,
-                id,
-            ],
-            (err) => (err ? reject(err) : resolve(true))
-        );
-    });
-}
-
-function deleteProduct(id) {
-    return new Promise((resolve, reject) => {
-        db.run(
-            "UPDATE products SET status = 'inactive' WHERE id = ?",
-            [id],
-            (err) => (err ? reject(err) : resolve(true))
-        );
-    });
-}
-
-function updateStock(productId, quantity, type = "sale") {
-    return new Promise((resolve, reject) => {
-        db.get(
-            "SELECT stock FROM products WHERE id = ?",
-            [productId],
-            (err, row) => {
-                if (err) return reject(err);
-                if (!row) return reject(new Error("Producto no encontrado"));
-
-                const previous = row.stock;
-                const newStock =
-                    type === "sale"
-                        ? previous - quantity
-                        : previous + quantity;
-
-                if (newStock < 0)
-                    return reject(new Error("Stock insuficiente"));
-
-                db.run(
-                    "UPDATE products SET stock = ? WHERE id = ?",
-                    [newStock, productId],
-                    (err) => {
-                        if (err) return reject(err);
-
-                        db.run(
-                            `
-                            INSERT INTO inventory_log 
-                            (product_id, type, quantity, previous_stock, new_stock)
-                            VALUES (?, ?, ?, ?, ?)
-                        `,
-                            [
-                                productId,
-                                type,
-                                quantity,
-                                previous,
-                                newStock,
-                            ]
-                        );
-
-                        resolve({ previous, newStock });
-                    }
-                );
-            }
+        db.all("SELECT * FROM products WHERE status = 'active'", (err, rows) =>
+            err ? reject(err) : resolve(rows)
         );
     });
 }
 
 /* ============================================
-   EL RESTO DE FUNCIONES LAS DEJO IGUAL
-   (VENTAS, DASHBOARD, UTILIDADES)
+   6) UTILIDADES
 ============================================ */
 
 function isConnected() {
@@ -367,33 +192,27 @@ function isConnected() {
 }
 
 function close() {
-    if (!db) return;
-    db.close();
+    if (db) db.close();
 }
 
 /* ============================================
-   EXPORTS
+   7) EXPORTAR (TODO CORREGIDO)
 ============================================ */
 
-initializeDatabase();
-
 module.exports = {
+    initDatabase,
+
     // Usuarios
     createUser,
     findUserByEmail,
     findUserById,
     updateUserResetToken,
-    getAllUsers,
 
     // Productos
     createProduct,
     getAllProducts,
-    getProductById,
-    updateProduct,
-    deleteProduct,
-    updateStock,
 
-    // Utilidades
+    // Utils
     isConnected,
     close,
 };
