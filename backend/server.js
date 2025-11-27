@@ -26,6 +26,7 @@ console.log("🛣️ middleware.js cargado correctamente");
 app.get("/api/ping", (req, res) => {
     res.json({ ok: true, message: "Backend activo" });
 });
+app.set("trust proxy", true);
 
 // ===================== RUTAS DE API =====================
 try {
@@ -96,3 +97,4 @@ function startServer(portIndex = 0) {
 
 // Iniciar sistema multipuerto
 startServer();
+
