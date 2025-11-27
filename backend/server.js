@@ -41,10 +41,15 @@ app.use("/api/sales", require("./routes/sales"));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Redirigir cualquier GET desconocido a index.html (SPA)
-app.get("*", (req, res) => {
+app.get("/*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
-
+// SPA catch-all: SOLO para rutas que NO empiezan por /api
+app.get(/^(?!\/api).*$/, (req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"), (err) => {
+    if (err) res.status(500).send('Error sirviendo index.html');
+  });
+});
 // =====================================
 // Levantar servidor
 // =====================================
@@ -56,3 +61,4 @@ app.listen(PORT, () => {
   console.log("✅ Base de datos: Conectada en memoria");
   console.log("============================================");
 });
+
