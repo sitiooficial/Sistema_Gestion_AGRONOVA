@@ -1,4 +1,111 @@
 // =============================================
+// 🌾 AGROMARKET - Backend Node.js + Express
+// =============================================
+
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+
+// Crear app
+const app = express();
+
+// ===================== CONFIGURACIONES =====================
+app.set("trust proxy", true);
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ===================== BASE DE DATOS =====================
+console.log("🗄️ Inicializando base de datos...");
+const { initDatabase } = require("./database/database");
+
+// ===================== MIDDLEWARES =====================
+console.log("🛣️ Cargando middleware...");
+const {
+    authRequired,
+    isAdmin,
+    sanitizeBody,
+} = require("./middleware");
+
+// Sanitizar body en todas las rutas
+app.use(sanitizeBody);
+
+// ===================== LOADER PARA FRONTEND =====================
+app.get("/loader.js", (req, res) => {
+    res.type("application/javascript").send(`
+        (() => {
+            const loc = window.location;
+            window.API_BASE = \`\${loc.protocol}//\${loc.hostname}:\${loc.port}\` + "/api";
+            console.log("📡 API Base:", window.API_BASE);
+        })();
+    `);
+});
+
+// ===================== RUTAS =====================
+console.log("🛣️ Cargando rutas...");
+
+try {
+    app.use("/api/auth", require("./routes/auth"));
+    app.use("/api/products", authRequired, require("./routes/products"));
+    app.use("/api/cart", authRequired, require("./routes/cart"));
+    app.use("/api/orders", authRequired, require("./routes/orders"));
+    app.use("/api/stats", authRequired, require("./routes/stats"));
+    app.use("/api/payments", authRequired, require("./routes/payments"));
+
+    const inventarioRoutes = require("./routes/inventario.routes");
+    app.use("/api/inventario", authRequired, inventarioRoutes);
+
+    // Usuarios (solo admin)
+    app.use("/api/users", authRequired, isAdmin, require("./routes/users"));
+
+} catch (err) {
+    console.error("❌ Error cargando rutas:", err.message);
+}
+
+// ===================== FRONTEND =====================
+console.log("📁 Serviendo frontend desde /public");
+
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get(/^(?!\/api).*/, (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// ===================== GLOBAL ERROR HANDLER =====================
+app.use((err, req, res, next) => {
+    console.error("🔥 ERROR GLOBAL:", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+});
+
+// ===================== INICIALIZAR BASE DE DATOS + SERVIDOR =====================
+
+async function start() {
+    try {
+        await initDatabase();
+        console.log("🔥 BD LISTA");
+
+        const PORT = process.env.PORT || 3000;
+
+        app.listen(PORT, () => {
+            console.log("============================================");
+            console.log("🌾 AGROMARKET - Sistema de Gestión Agrícola");
+            console.log("============================================");
+            console.log(`🚀 Servidor activo en: http://localhost:${PORT}`);
+            console.log(`🌍 API Base: http://localhost:${PORT}/api`);
+            console.log("📁 Frontend listo en /public");
+            console.log("============================================");
+        });
+
+    } catch (err) {
+        console.error("❌ Error iniciando servidor:", err);
+        process.exit(1);
+    }
+}
+
+start();
+
+// =============================================
 // 📦 AGROMARKET - Backend Node.js + Express
 // =============================================
 
@@ -117,3 +224,4 @@ function startServer(portIndex = 0) {
 }
 
 startServer();
+
