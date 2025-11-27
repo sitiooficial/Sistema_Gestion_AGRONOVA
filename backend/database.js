@@ -15,19 +15,14 @@ const sqlite3 = require("sqlite3").verbose();
 // DEFINIR RUTA DE BASE DE DATOS SEGÚN ENTORNO
 // ============================================
 
-// Carpeta "data" segura y con permisos de escritura
 const DATA_DIR = path.join(__dirname, "..", "data");
 
-// Crear carpeta si no existe
 if (!fs.existsSync(DATA_DIR)) {
     console.log("📁 Creando carpeta /data para la base de datos...");
     fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Permitir especificar ruta personalizada desde .env
-const DB_PATH =
-    process.env.DB_PATH ||
-    path.join(DATA_DIR, "agromarket.db");
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "agromarket.db");
 
 console.log("📌 Ruta final BD:", DB_PATH);
 
@@ -46,7 +41,6 @@ function initializeDatabase() {
         console.log("✅ SQLite cargado correctamente");
     });
 
-    // Foreign keys ON
     db.run("PRAGMA foreign_keys = ON");
 
     createTables();
@@ -58,7 +52,9 @@ function initializeDatabase() {
 // ============================================
 
 function createTables() {
-    const tableQueries = [
+    const queries = [
+
+        // --- USERS ---
         `
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +68,8 @@ function createTables() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         `,
+
+        // --- PRODUCTS ---
         `
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,34 +84,21 @@ function createTables() {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         `,
-        `
-        CREATE TABLE IF NOT EXISTS inventory_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER NOT NULL,
-            type TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            previous_stock INTEGER NOT NULL,
-            new_stock INTEGER NOT NULL,
-            notes TEXT,
-            created_by INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (product_id) REFERENCES products(id),
-            FOREIGN KEY (created_by) REFERENCES users(id)
-        );
-        `,
+
+        // --- SALES ---
         `
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             total REAL NOT NULL,
             payment_method TEXT NOT NULL,
-            payment_status TEXT DEFAULT 'pending',
-            transaction_id TEXT,
             status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
         `,
+
+        // --- SALE_ITEMS ---
         `
         CREATE TABLE IF NOT EXISTS sale_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +112,8 @@ function createTables() {
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
         `,
+
+        // --- CART ---
         `
         CREATE TABLE IF NOT EXISTS cart (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,10 +124,27 @@ function createTables() {
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
+        `,
+
+        // --- INVENTORY LOG ---
         `
+        CREATE TABLE IF NOT EXISTS inventory_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            previous_stock INTEGER NOT NULL,
+            new_stock INTEGER NOT NULL,
+            created_by INTEGER,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+        `,
     ];
 
-    tableQueries.forEach((query) => db.run(query));
+    queries.forEach((q) => db.run(q));
 
     console.log("✅ Tablas creadas/verificadas");
 }
@@ -150,44 +154,378 @@ function createTables() {
 // ============================================
 
 function createDefaultAdmin() {
-    const adminEmail = process.env.ADMIN_EMAIL || "admin@agromarket.com";
-    const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+    const email = process.env.ADMIN_EMAIL || "admin@agromarket.com";
+    const password = process.env.ADMIN_PASSWORD || "admin123";
 
-    db.get("SELECT id FROM users WHERE email = ?", [adminEmail], async (err, row) => {
-        if (err) return console.error("Error leyendo admin:", err);
+    db.get("SELECT id FROM users WHERE email = ?", [email], async (err, row) => {
+        if (err) return console.error(err);
 
         if (!row) {
-            const hashed = await bcrypt.hash(adminPassword, 10);
+            const hashed = await bcrypt.hash(password, 10);
 
             db.run(
                 `
                 INSERT INTO users (name, email, password, role)
                 VALUES (?, ?, ?, 'admin')
             `,
-                ["Administrador", adminEmail, hashed],
+                ["Administrador", email, hashed],
                 (err) => {
-                    if (err) console.log("⚠ Error creando admin:", err);
-                    else console.log("👑 Admin creado:", adminEmail);
+                    if (err) console.error("Error creando admin:", err);
+                    else console.log("👑 Admin creado:", email);
                 }
             );
         }
     });
 }
 
-// ============================================
-// (TODAS LAS MISMAS FUNCIONES QUE YA TENÍAS)
-// OMITIDAS AQUÍ PARA NO DUPLICAR 1000 LÍNEAS
-// 💬 Las mantengo intactas como tú las enviastes
-// ============================================
+// ======================================================
+// 🔥 FUNCIONES COMPLETAS PARA USUARIOS
+// ======================================================
 
-// (PEGAR AQUÍ TODAS LAS FUNCIONES EXACTAS QUE YA TENÍAS)
+function createUser(name, email, password, role = "customer") {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const hashed = await bcrypt.hash(password, 10);
 
+            db.run(
+                `INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)`,
+                [name, email, hashed, role],
+                function (err) {
+                    if (err) return reject(err);
+                    resolve({ id: this.lastID });
+                }
+            );
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
 
-// ============================================
+function findUserByEmail(email) {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function findUserById(id) {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT * FROM users WHERE id = ?`, [id], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function getAllUsers() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM users ORDER BY id DESC`, [], (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
+function updateUserResetToken(email, token, expires) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE email = ?`,
+            [token, expires, email],
+            function (err) {
+                if (err) reject(err);
+                else resolve(true);
+            }
+        );
+    });
+}
+
+// ======================================================
+// 🔥 FUNCIONES COMPLETAS PARA PRODUCTOS
+// ======================================================
+
+function createProduct(data) {
+    const { name, category, description, price, stock, min_stock } = data;
+
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            INSERT INTO products (name, category, description, price, stock, min_stock) 
+            VALUES (?, ?, ?, ?, ?, ?)
+            `,
+            [name, category, description, price, stock, min_stock],
+            function (err) {
+                if (err) reject(err);
+                else resolve({ id: this.lastID });
+            }
+        );
+    });
+}
+
+function getAllProducts() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT * FROM products ORDER BY id DESC`, [], (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
+function getProductById(id) {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT * FROM products WHERE id = ?`, [id], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function updateProduct(id, data) {
+    const { name, category, description, price, stock, min_stock } = data;
+
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            UPDATE products SET 
+                name=?, category=?, description=?, price=?, stock=?, min_stock=?, 
+                updated_at=CURRENT_TIMESTAMP 
+            WHERE id=?
+            `,
+            [name, category, description, price, stock, min_stock, id],
+            function (err) {
+                if (err) reject(err);
+                else resolve(true);
+            }
+        );
+    });
+}
+
+function deleteProduct(id) {
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM products WHERE id = ?`, [id], function (err) {
+            if (err) reject(err);
+            else resolve(true);
+        });
+    });
+}
+
+function updateStock(id, newStock) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `UPDATE products SET stock=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+            [newStock, id],
+            function (err) {
+                if (err) reject(err);
+                else resolve(true);
+            }
+        );
+    });
+}
+
+// ======================================================
+// 🔥 INVENTARIO
+// ======================================================
+
+function logInventoryChange(data) {
+    const {
+        product_id,
+        type,
+        quantity,
+        previous_stock,
+        new_stock,
+        created_by,
+        notes,
+    } = data;
+
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            INSERT INTO inventory_log 
+            (product_id, type, quantity, previous_stock, new_stock, created_by, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            `,
+            [product_id, type, quantity, previous_stock, new_stock, created_by, notes],
+            function (err) {
+                if (err) reject(err);
+                else resolve(this.lastID);
+            }
+        );
+    });
+}
+
+function getInventoryLog() {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `
+            SELECT log.*, p.name AS product_name, u.name AS user_name
+            FROM inventory_log log
+            LEFT JOIN products p ON p.id = log.product_id
+            LEFT JOIN users u ON u.id = log.created_by
+            ORDER BY log.id DESC
+            `,
+            [],
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
+        );
+    });
+}
+
+// ======================================================
+// 🔥 CARRITO
+// ======================================================
+
+function addToCart(user_id, product_id, quantity) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            INSERT INTO cart (user_id, product_id, quantity)
+            VALUES (?, ?, ?)
+            `,
+            [user_id, product_id, quantity],
+            function (err) {
+                if (err) reject(err);
+                else resolve(this.lastID);
+            }
+        );
+    });
+}
+
+function getCart(user_id) {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `
+            SELECT c.*, p.name, p.price 
+            FROM cart c 
+            JOIN products p ON p.id = c.product_id
+            WHERE c.user_id = ?
+            `,
+            [user_id],
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
+        );
+    });
+}
+
+function clearCart(user_id) {
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM cart WHERE user_id=?`, [user_id], function (err) {
+            if (err) reject(err);
+            else resolve(true);
+        });
+    });
+}
+
+// ======================================================
+// 🔥 VENTAS
+// ======================================================
+
+function createSale(user_id, total, payment_method) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            INSERT INTO sales (user_id, total, payment_method)
+            VALUES (?, ?, ?)
+            `,
+            [user_id, total, payment_method],
+            function (err) {
+                if (err) reject(err);
+                else resolve({ id: this.lastID });
+            }
+        );
+    });
+}
+
+function addSaleItem(data) {
+    const { sale_id, product_id, product_name, quantity, price, subtotal } = data;
+
+    return new Promise((resolve, reject) => {
+        db.run(
+            `
+            INSERT INTO sale_items 
+            (sale_id, product_id, product_name, quantity, price, subtotal)
+            VALUES (?, ?, ?, ?, ?, ?)
+            `,
+            [sale_id, product_id, product_name, quantity, price, subtotal],
+            function (err) {
+                if (err) reject(err);
+                else resolve(true);
+            }
+        );
+    });
+}
+
+function getSalesByUser(user_id) {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `
+            SELECT * FROM sales WHERE user_id=? ORDER BY id DESC
+            `,
+            [user_id],
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
+        );
+    });
+}
+
+function getAllSales() {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `
+            SELECT s.*, u.name AS user_name 
+            FROM sales s 
+            JOIN users u ON u.id = s.user_id
+            ORDER BY s.id DESC
+            `,
+            [],
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
+        );
+    });
+}
+
+function getSaleDetails(id) {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `
+            SELECT * FROM sale_items WHERE sale_id=?
+            `,
+            [id],
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
+        );
+    });
+}
+
+// ======================================================
+// UTILIDADES
+// ======================================================
+
+function isConnected() {
+    return !!db;
+}
+
+function close() {
+    db.close();
+}
+
+// ======================================================
 // EXPORTAR
-// ============================================
+// ======================================================
 
 module.exports = {
+    initializeDatabase,
+
     // Usuarios
     createUser,
     findUserByEmail,
@@ -202,32 +540,22 @@ module.exports = {
     updateProduct,
     deleteProduct,
     updateStock,
-    getLowStockProducts,
-    getProductCategories,
-    getProductStatistics,
-    searchProducts,
 
     // Inventario
     logInventoryChange,
     getInventoryLog,
 
+    // Carrito
+    addToCart,
+    getCart,
+    clearCart,
+
     // Ventas
     createSale,
+    addSaleItem,
     getSalesByUser,
     getAllSales,
     getSaleDetails,
-    updateSaleStatus,
-    getSaleByTransactionId,
-    logRefund,
-    getSalesSummary,
-    getSalesByPeriod,
-    getTopSellingProducts,
-    getSalesByCustomer,
-    getSalesStatistics,
-    getSalesByDate,
-
-    // Dashboard
-    getDashboardStats,
 
     // Utilidades
     isConnected,
