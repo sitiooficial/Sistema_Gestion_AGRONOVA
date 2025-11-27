@@ -1,299 +1,430 @@
-/* ============================================================
-   AGRONOVA S.A.C. — FRONTEND CONTROLLER (app.js)
-   Manejo de Autenticación, Roles, Productos, Carrito y UI
-============================================================ */
+/**
+ * ============================================
+ * FRONTEND APP - app.js (SINCRONIZADO)
+ * Lógica del cliente para AgroMarket
+ * ============================================
+ */
 
-// ================= UTILIDADES =====================
-const $ = (id) => document.getElementById(id);
+// ============================================
+// CONFIGURACIÓN
+// ============================================
 
-function showAlert(type, message) {
-    const alert = $("alert");
-    const icon = $("alertIcon");
-    const msg = $("alertMessage");
+const API_URL = 'http://localhost:3000/api';
+let currentUser = null;
+let authToken = null;
+let cart = [];
+let allProducts = [];
+let selectedPaymentMethod = null;
 
-    const icons = {
-        success: "✓",
-        error: "⚠️",
-        warning: "❗"
-    };
+// ============================================
+// INICIALIZACIÓN
+// ============================================
 
-    icon.textContent = icons[type] || "ℹ️";
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+async function initializeApp() {
+    authToken = localStorage.getItem('authToken');
+
+    if (authToken) {
+        try {
+            await verifyToken();
+        } catch (e) {
+            console.warn("Token inválido");
+            logout();
+        }
+    } else {
+        showScreen("loginScreen");
+    }
+
+    // Cargar carrito
+    const savedCart = localStorage.getItem('cart');
+    if (savedCart) {
+        cart = JSON.parse(savedCart);
+        updateCartBadge();
+    }
+
+    setupEventListeners();
+    hideLoader();
+}
+
+function setupEventListeners() {
+
+    // Formularios Auth — (TODOS EXISTEN EN EL index.html)
+    document.getElementById('loginForm')?.addEventListener('submit', handleLogin);
+    document.getElementById('registerForm')?.addEventListener('submit', handleRegister);
+    document.getElementById('forgotPasswordForm')?.addEventListener('submit', handleForgotPassword);
+
+    // Form productos (admin)
+    document.getElementById('productForm')?.addEventListener('submit', handleProductSubmit);
+
+    // Buscador
+    document.getElementById('searchInput')?.addEventListener('input', handleSearch);
+
+    // Cerrar dropdown al hacer click afuera
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.user-menu')) {
+            document.getElementById('userDropdown')?.classList.remove('active');
+        }
+    });
+}
+
+// ============================================
+// AUTENTICACIÓN
+// ============================================
+
+async function handleLogin(e) {
+    e.preventDefault();
+
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+
+    try {
+        showLoader();
+
+        const r = await fetch(`${API_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password })
+        });
+
+        const data = await r.json();
+
+        if (!data.success) return showAlert(data.error, "error");
+
+        authToken = data.data.token;
+        currentUser = data.data.user;
+
+        localStorage.setItem("authToken", authToken);
+        localStorage.setItem("user", JSON.stringify(currentUser));
+
+        showAlert("Bienvenido " + currentUser.name, "success");
+
+        if (currentUser.role === "admin") {
+            loadAdminPanel();
+        } else {
+            loadCustomerPanel();
+        }
+
+    } catch (e) {
+        showAlert("Error de conexión", "error");
+    } finally {
+        hideLoader();
+    }
+}
+
+async function handleRegister(e) {
+    e.preventDefault();
+
+    const name = document.getElementById('regName').value;
+    const email = document.getElementById('regEmail').value;
+    const pass = document.getElementById('regPassword').value;
+    const pass2 = document.getElementById('regPasswordConfirm').value;
+
+    if (pass !== pass2) return showAlert("Las contraseñas no coinciden", "error");
+
+    try {
+        showLoader();
+
+        const r = await fetch(`${API_URL}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, email, password: pass })
+        });
+
+        const data = await r.json();
+
+        if (!data.success) return showAlert(data.error, "error");
+
+        authToken = data.data.token;
+        currentUser = data.data.user;
+
+        localStorage.setItem("authToken", authToken);
+        localStorage.setItem("user", JSON.stringify(currentUser));
+
+        showAlert("Cuenta creada exitosamente", "success");
+        loadCustomerPanel();
+
+    } catch (e) {
+        showAlert("Error de conexión", "error");
+    } finally {
+        hideLoader();
+    }
+}
+
+async function handleForgotPassword(e) {
+    e.preventDefault();
+
+    const email = document.getElementById("forgotEmail").value;
+
+    try {
+        showLoader();
+
+        const r = await fetch(`${API_URL}/auth/forgot-password`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email })
+        });
+
+        const data = await r.json();
+
+        if (!data.success) return showAlert(data.error, "error");
+
+        showAlert("Enlace enviado a tu correo", "success");
+
+        setTimeout(() => showScreen("loginScreen"), 2000);
+
+    } catch (e) {
+        showAlert("Error de conexión", "error");
+    } finally {
+        hideLoader();
+    }
+}
+
+async function verifyToken() {
+    const r = await fetch(`${API_URL}/auth/verify`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+    });
+
+    const data = await r.json();
+
+    if (!data.success) throw new Error("Token inválido");
+
+    currentUser = data.data.user;
+    localStorage.setItem("user", JSON.stringify(currentUser));
+
+    if (currentUser.role === "admin") {
+        loadAdminPanel();
+    } else {
+        loadCustomerPanel();
+    }
+}
+
+function logout() {
+    authToken = null;
+    currentUser = null;
+    cart = [];
+
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("cart");
+
+    showScreen("loginScreen");
+    showAlert("Sesión cerrada", "success");
+}
+
+// ============================================
+// PANEL ADMIN
+// ============================================
+
+async function loadAdminPanel() {
+    document.getElementById("appContainer").classList.add("active");
+    document.getElementById("adminPanel").classList.remove("hidden");
+    document.getElementById("customerPanel").classList.add("hidden");
+    document.getElementById("cartBtn").classList.add("hidden");
+
+    document.getElementById("userName").textContent = currentUser.name;
+
+    await loadDashboard();
+}
+
+async function loadDashboard() {
+    try {
+        const r = await fetch(`${API_URL}/admin/dashboard`, {
+            headers: { Authorization: `Bearer ${authToken}` }
+        });
+
+        const data = await r.json();
+        if (!data.success) return;
+
+        const stats = data.data;
+
+        document.getElementById('totalProducts').textContent = stats.totalProducts;
+        document.getElementById('totalSales').textContent = `S/ ${stats.totalSales.toFixed(2)}`;
+        document.getElementById('totalOrders').textContent = stats.totalOrders;
+        document.getElementById('lowStock').textContent = stats.lowStock;
+
+        displayRecentSales(stats.recentSales);
+
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function displayRecentSales(sales) {
+    const container = document.getElementById("recentSalesTable");
+
+    if (!sales || sales.length === 0) {
+        container.innerHTML = "<p>No hay ventas recientes</p>";
+        return;
+    }
+
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Cliente</th>
+                    <th>Total</th>
+                    <th>Método</th>
+                    <th>Estado</th>
+                    <th>Fecha</th>
+                </tr>
+            </thead>
+        <tbody>
+    `;
+
+    sales.forEach(s => {
+        html += `
+            <tr>
+                <td>${s.id}</td>
+                <td>${s.user_name}</td>
+                <td>S/ ${s.total.toFixed(2)}</td>
+                <td>${s.payment_method}</td>
+                <td><span class="badge badge-${s.status}">${s.status}</span></td>
+                <td>${new Date(s.created_at).toLocaleDateString()}</td>
+            </tr>
+        `;
+    });
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+}
     msg.textContent = message;
 
-    alert.className = `alert active ${type}`;
+    alert.className = `alert ${type}`;
+    alert.classList.add('show');
 
     setTimeout(() => {
-        alert.classList.remove("active");
+        alert.classList.remove('show');
     }, 3000);
 }
 
-// ================= CONTROL DE PANTALLAS =====================
-function showScreen(screenId) {
-    document.querySelectorAll(".auth-container").forEach(el => el.classList.remove("active"));
-    document.querySelectorAll(".app-container").forEach(el => el.classList.remove("active"));
+// ============================================
+// INVENTARIO (ADMIN)
+// ============================================
 
-    $(screenId).classList.add("active");
-}
+async function loadInventory() {
+    try {
+        const response = await fetch(`${API_URL}/inventory`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
 
-// ================= LOADER =====================
-window.onload = () => {
-    setTimeout(() => {
-        $("loader").classList.add("hidden");
-
-        // Si hay un usuario logeado, llevarlo a su panel
-        const user = JSON.parse(localStorage.getItem("ag_user"));
-        if (user) loadUserSession(user);
-        else showScreen("loginScreen");
-    }, 800);
-};
-
-// ================= BASE DE DATOS LOCAL =====================
-const USERS_KEY = "ag_users";
-const PRODUCTS_KEY = "ag_products";
-
-// Si no hay productos creados → inicializar
-if (!localStorage.getItem(PRODUCTS_KEY)) {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify([
-        {
-            id: 1,
-            name: "Fertilizante Premium",
-            category: "Insumos",
-            price: 120.50,
-            stock: 35
-        },
-        {
-            id: 2,
-            name: "Semillas de Maíz",
-            category: "Semillas",
-            price: 85.00,
-            stock: 50
-        },
-        {
-            id: 3,
-            name: "Herbicida Total",
-            category: "Insumos",
-            price: 98.75,
-            stock: 20
+        const data = await response.json();
+        if (data.success) {
+            displayInventory(data.data);
         }
-    ]));
+    } catch (error) {
+        console.error('Error loading inventory:', error);
+        showAlert('Error cargando inventario', 'error');
+    }
 }
 
-// ============================================================
-//                  SISTEMA DE AUTENTICACIÓN
-// ============================================================
+function displayInventory(items) {
+    const tbody = document.getElementById('inventoryTableBody');
 
-// ================= REGISTRO =====================
-$("registerForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-
-    const name = $("regName").value.trim();
-    const email = $("regEmail").value.trim().toLowerCase();
-    const password = $("regPassword").value.trim();
-
-    let users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-
-    if (users.find(u => u.email === email)) {
-        showAlert("error", "Este correo ya está registrado");
+    if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5">No hay datos de inventario</td></tr>';
         return;
     }
 
-    const newUser = {
-        id: Date.now(),
-        name,
-        email,
-        password,
-        role: users.length === 0 ? "admin" : "user" // el primero es admin
-    };
+    tbody.innerHTML = items.map(i => `
+        <tr>
+            <td>${i.id}</td>
+            <td>${i.name}</td>
+            <td>${i.stock}</td>
+            <td>${i.min_stock}</td>
+            <td>
+                ${i.stock <= i.min_stock ? 
+                    '<span class="badge badge-warning">Bajo</span>' : 
+                    '<span class="badge badge-success">OK</span>'
+                }
+            </td>
+        </tr>
+    `).join('');
+}
 
-    users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// ============================================
+// USUARIOS (ADMIN)
+// ============================================
 
-    showAlert("success", "Cuenta creada correctamente");
-    showScreen("loginScreen");
-});
+async function loadUsers() {
+    try {
+        const res = await fetch(`${API_URL}/admin/users`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
 
-// ================= LOGIN =====================
-$("loginForm").addEventListener("submit", (e) => {
-    e.preventDefault();
+        const data = await res.json();
 
-    const email = $("loginEmail").value.trim().toLowerCase();
-    const password = $("loginPassword").value.trim();
+        if (data.success) {
+            displayUsers(data.data);
+        }
+    } catch (err) {
+        console.error(err);
+        showAlert('Error cargando usuarios', 'error');
+    }
+}
 
-    let users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+function displayUsers(users) {
+    const table = document.getElementById('usersTableBody');
 
-    const user = users.find(u => u.email === email && u.password === password);
-
-    if (!user) {
-        showAlert("error", "Credenciales incorrectas");
+    if (!users || users.length === 0) {
+        table.innerHTML = '<tr><td colspan="5">No hay usuarios registrados</td></tr>';
         return;
     }
 
-    localStorage.setItem("ag_user", JSON.stringify(user));
-    loadUserSession(user);
-});
+    table.innerHTML = users.map(u => `
+        <tr>
+            <td>${u.id}</td>
+            <td>${u.name}</td>
+            <td>${u.email}</td>
+            <td><span class="badge badge-${u.role}">${u.role}</span></td>
+            <td>${new Date(u.created_at).toLocaleDateString()}</td>
+        </tr>
+    `).join('');
+}
 
-// ================= CARGA DE SESIÓN POR ROL =====================
-function loadUserSession(user) {
-    $("userNameDisplay").textContent = user.name;
+// ============================================
+// VENTAS (ADMIN)
+// ============================================
 
-    if (user.role === "admin") {
-        $("adminPanel").classList.add("active");
-        $("customerPanel").classList.remove("active");
-    } else {
-        $("customerPanel").classList.add("active");
-        $("adminPanel").classList.remove("active");
+async function loadSalesAdmin() {
+    try {
+        const res = await fetch(`${API_URL}/admin/sales`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            displaySalesAdmin(data.data);
+        }
+    } catch (err) {
+        console.error(err);
+        showAlert('Error cargando ventas', 'error');
+    }
+}
+
+function displaySalesAdmin(sales) {
+    const tbody = document.getElementById('salesTableBody');
+
+    if (!sales || sales.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6">No hay ventas registradas</td></tr>';
+        return;
     }
 
-    showScreen("appMain");
-    renderProducts();
-    updateCartCount();
+    tbody.innerHTML = sales.map(s => `
+        <tr>
+            <td>${s.id}</td>
+            <td>${s.user_name}</td>
+            <td>S/ ${s.total.toFixed(2)}</td>
+            <td>${s.payment_method}</td>
+            <td><span class="badge badge-${s.status}">${s.status}</span></td>
+            <td>${new Date(s.created_at).toLocaleDateString()}</td>
+        </tr>
+    `).join('');
 }
 
-// ================= LOGOUT =====================
-function logout() {
-    localStorage.removeItem("ag_user");
-    showScreen("loginScreen");
-    showAlert("success", "Sesión cerrada");
-}
+// ============================================
+// FIN DEL ARCHIVO
+// ============================================
 
-// ================= USER MENU =====================
-$("userBtn").addEventListener("click", () => {
-    $("userDropdown").classList.toggle("active");
-});
-
-document.addEventListener("click", (e) => {
-    if (!e.target.closest(".user-menu")) {
-        $("userDropdown").classList.remove("active");
-    }
-});
-
-// ============================================================
-//                           PRODUCTOS
-// ============================================================
-
-function getProducts() {
-    return JSON.parse(localStorage.getItem(PRODUCTS_KEY)) || [];
-}
-
-function renderProducts() {
-    const products = getProducts();
-
-    // Carrusel
-    const carousel = $("carousel");
-    carousel.innerHTML = "";
-
-    // Grid
-    const grid = $("productsGrid");
-    grid.innerHTML = "";
-
-    products.forEach(prod => {
-        const card = `
-            <div class="product-card">
-                <div class="product-image">🌱</div>
-                <div class="product-info">
-                    <h3>${prod.name}</h3>
-                    <div class="category">${prod.category}</div>
-                    <div class="price">S/ ${prod.price.toFixed(2)}</div>
-                    <div class="stock">Stock disponible: ${prod.stock}</div>
-                    <button class="btn-cart" onclick="addToCart(${prod.id})" ${prod.stock <= 0 ? "disabled" : ""}>
-                        Añadir al Carrito
-                    </button>
-                </div>
-            </div>
-        `;
-
-        carousel.innerHTML += card;
-        grid.innerHTML += card;
-    });
-}
-
-// ============================================================
-//                        CARRITO DE COMPRAS
-// ============================================================
-
-let cart = JSON.parse(localStorage.getItem("ag_cart")) || [];
-
-function updateCartCount() {
-    $("cartBadge").textContent = cart.length;
-}
-
-function addToCart(id) {
-    const products = getProducts();
-    const product = products.find(p => p.id === id);
-
-    if (!product || product.stock === 0) return;
-
-    const item = cart.find(c => c.id === id);
-
-    if (item) item.qty++;
-    else cart.push({ id, qty: 1 });
-
-    localStorage.setItem("ag_cart", JSON.stringify(cart));
-
-    updateCartCount();
-    showAlert("success", "Producto añadido al carrito");
-}
-
-// ================= MODAL DE CARRITO =====================
-$("cartBtn").addEventListener("click", () => {
-    renderCartModal();
-    $("cartModal").classList.add("active");
-});
-
-function closeModal(modal) {
-    $(modal).classList.remove("active");
-}
-
-// ================= RENDER MODAL =====================
-function renderCartModal() {
-    const products = getProducts();
-    const body = $("cartItems");
-    let total = 0;
-
-    body.innerHTML = "";
-
-    cart.forEach(item => {
-        const prod = products.find(p => p.id === item.id);
-        const subtotal = prod.price * item.qty;
-        total += subtotal;
-
-        body.innerHTML += `
-            <div class="cart-item">
-                <div class="cart-item-image">🌱</div>
-                <div class="cart-item-info">
-                    <h4>${prod.name}</h4>
-                    <div class="price">S/ ${prod.price.toFixed(2)}</div>
-                    <div class="quantity-controls">
-                        <button class="quantity-btn" onclick="changeQty(${prod.id}, -1)">-</button>
-                        <span class="quantity-display">${item.qty}</span>
-                        <button class="quantity-btn" onclick="changeQty(${prod.id}, 1)">+</button>
-                    </div>
-                </div>
-            </div>
-        `;
-    });
-
-    $("cartTotal").textContent = `S/ ${total.toFixed(2)}`;
-}
-
-// ================= CAMBIAR CANTIDAD =====================
-function changeQty(id, delta) {
-    const item = cart.find(c => c.id === id);
-    if (!item) return;
-
-    item.qty += delta;
-
-    if (item.qty <= 0) {
-        cart = cart.filter(c => c.id !== id);
-    }
-
-    localStorage.setItem("ag_cart", JSON.stringify(cart));
-    updateCartCount();
-    renderCartModal();
-}
-
-// ============================================================
-//                EXPORTAR/CONEXIÓN LISTO
-// ============================================================
-
-console.log("AGRONOVA Frontend cargado correctamente.");
+console.log("AgroMarket Frontend Loaded ✔");
