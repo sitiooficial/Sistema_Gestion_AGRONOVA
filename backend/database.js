@@ -7,7 +7,7 @@ const DB_PATH = path.join(__dirname, "agromarket.db");
 let db = null;
 
 /* ============================================
-   1) INICIALIZAR
+   1) INICIALIZAR DATABASE
 ============================================ */
 
 function initDatabase() {
@@ -21,14 +21,15 @@ function initDatabase() {
         console.log("✅ SQLite conectado:", DB_PATH);
     });
 
-    db.run("PRAGMA foreign_keys = ON");
-
-    createTables();
-    createDefaultAdmin();
+    db.serialize(() => {
+        db.run("PRAGMA foreign_keys = ON");
+        createTables();
+        createDefaultAdmin();
+    });
 }
 
 /* ============================================
-   2) TABLAS
+   2) CREACIÓN DE TABLAS
 ============================================ */
 
 function createTables() {
@@ -61,33 +62,49 @@ function createTables() {
         )
     `);
 
-    console.log("✅ Tablas verificadas");
+    console.log("✅ Tablas verificadas y sincronizadas");
 }
 
 /* ============================================
-   3) ADMIN DEFAULT
+   3) CREAR ADMIN DEFAULT
 ============================================ */
 
 function createDefaultAdmin() {
     const email = "admin@agromarket.com";
     const pass = "admin123";
 
-    db.get("SELECT id FROM users WHERE email = ?", [email], async (err, row) => {
-        if (row) return;
+    db.get(
+        "SELECT id FROM users WHERE email = ?",
+        [email],
+        async (err, row) => {
+            if (row) return; // Ya existe
 
-        const hashed = await bcrypt.hash(pass, 10);
+            try {
+                const hashed = await bcrypt.hash(pass, 10);
 
-        db.run(
-            "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
-            ["Administrador", email, hashed, "admin"]
-        );
-
-        console.log("👑 Admin creado:", email);
-    });
+                db.run(
+                    `
+                    INSERT INTO users (name, email, password, role)
+                    VALUES (?, ?, ?, ?)
+                `,
+                    ["Administrador", email, hashed, "admin"],
+                    (err) => {
+                        if (err) {
+                            console.error("❌ Error creando admin:", err);
+                            return;
+                        }
+                        console.log("👑 Admin creado:", email);
+                    }
+                );
+            } catch (error) {
+                console.error("❌ Error generando hash admin:", error);
+            }
+        }
+    );
 }
 
 /* ============================================
-   4) USUARIOS
+   4) MÉTODOS DE USUARIO
 ============================================ */
 
 function createUser(name, email, hashedPassword, role = "customer") {
@@ -99,8 +116,8 @@ function createUser(name, email, hashedPassword, role = "customer") {
         `,
             [name, email, hashedPassword, role],
             function (err) {
-                if (err) return reject(err);
-                resolve({ id: this.lastID });
+                if (err) reject(err);
+                else resolve({ id: this.lastID });
             }
         );
     });
@@ -109,8 +126,8 @@ function createUser(name, email, hashedPassword, role = "customer") {
 function findUserByEmail(email) {
     return new Promise((resolve, reject) => {
         db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
+            if (err) return reject(err);
+            resolve(row);
         });
     });
 }
@@ -120,36 +137,39 @@ function findUserById(id) {
         db.get(
             "SELECT id, name, email, role FROM users WHERE id = ?",
             [id],
-            (err, row) => (err ? reject(err) : resolve(row))
+            (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            }
         );
     });
 }
 
-/*
- * ✔️ ESTA ES LA ÚNICA DEFINICIÓN CORRECTA
- * Guarda token y expiración de recuperación
- 
- * Actualiza el token de recuperación y su fecha de expiración
- */
+/* ============================================
+   ✔ Token de recuperación (corregido)
+============================================ */
+
 function updateUserResetToken(userId, resetToken, expiresAt) {
     return new Promise((resolve, reject) => {
-        const query = `
-            UPDATE users
+        db.run(
+            `
+            UPDATE users 
             SET reset_token = ?, reset_token_expires = ?
             WHERE id = ?
-        `;
-
-        db.run(query, [resetToken, expiresAt, userId], function (err) {
-            if (err) {
-                console.error("❌ Error al actualizar reset token:", err);
-                return reject(err);
+        `,
+            [resetToken, expiresAt, userId],
+            function (err) {
+                if (err) {
+                    console.error("❌ Error al actualizar reset token:", err);
+                    reject(err);
+                } else resolve(true);
             }
-            resolve(true);
-        });
+        );
     });
 }
+
 /* ============================================
-   5) PRODUCTOS
+   5) MÉTODOS DE PRODUCTOS
 ============================================ */
 
 function createProduct(data) {
@@ -177,8 +197,12 @@ function createProduct(data) {
 
 function getAllProducts() {
     return new Promise((resolve, reject) => {
-        db.all("SELECT * FROM products WHERE status = 'active'", (err, rows) =>
-            err ? reject(err) : resolve(rows)
+        db.all(
+            "SELECT * FROM products WHERE status = 'active'",
+            (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            }
         );
     });
 }
@@ -196,19 +220,19 @@ function close() {
 }
 
 /* ============================================
-   7) EXPORTAR (TODO CORREGIDO)
+   7) EXPORTAR
 ============================================ */
 
 module.exports = {
     initDatabase,
 
-    // Usuarios
+    // Users
     createUser,
     findUserByEmail,
     findUserById,
     updateUserResetToken,
 
-    // Productos
+    // Products
     createProduct,
     getAllProducts,
 
