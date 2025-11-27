@@ -39,7 +39,7 @@ console.log("Ventas:", db.sales.length);
 // =====================================
 // Servidor
 // =====================================
-const app = express();
+
 app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 
@@ -87,4 +87,5 @@ app.listen(PORT, () => {
   console.log("🗄️ Base de datos SQLite: Conectada (ver ./database)");
   console.log("============================================");
 });
+
 
