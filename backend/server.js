@@ -12,8 +12,8 @@ const app = express();
 // ===================== MIDDLEWARES GLOBALES =====================
 app.use(cors());
 
-    origin: '*',
-    credentials: true
+    origin: '*';
+  
 }));
 
 app.use(express.json());
@@ -72,4 +72,5 @@ app.listen(PORT, () => {
     console.log("🗄️ Base de datos SQLite: Conectada");
     console.log("============================================");
 });
+
 
