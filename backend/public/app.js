@@ -15,7 +15,8 @@
 const API_BASES_TO_TRY = [
   'http://localhost:3000',
   'http://localhost:4000',
-  'http://localhost:5000'
+  'http://localhost:5000',
+  'https://sistema-gestion-agronova-1.onrender.com'
 ];
 
 // valor final con /api al final, se asigna en initializeApp
