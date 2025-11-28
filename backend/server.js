@@ -20,10 +20,11 @@ app.use(cors({
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "https://haciendoProyectos.online",
-        "http://haciendoProyectos.online"
+        "http://haciendoProyectos.online",
+        "https://sistema-gestion-agronova-1.onrender.com"
     ],
     credentials: true
-}));
+}))
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -151,3 +152,4 @@ function startServer(portIndex = 0) {
 }
 
 startServer();
+
