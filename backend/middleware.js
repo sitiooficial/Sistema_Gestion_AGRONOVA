@@ -1,13 +1,28 @@
 // =====================================================
-// middleware.js — EDGE-COMPATIBLE (sin jsonwebtoken, sin crypto node)
-// Usa Web Crypto API (crypto.subtle)
+// middleware.js — VERCEL EDGE COMPATIBLE
+// (Sin jsonwebtoken, sin crypto de Node, sin stream)
 // =====================================================
 
 // =============================
-// Helpers para JWT Web Crypto
+// JWT NATIVO - WebCrypto API
 // =============================
+
+// Convertir a Base64URL
+const toBase64Url = input =>
+    btoa(input)
+        .replace(/=/g, "")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+
+// Parseo Base64URL → JSON
+function fromBase64Url(str) {
+    str = str.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(str));
+}
+
+// Importa clave secreta HMAC SHA256
 async function importKey(secret) {
-    return crypto.subtle.importKey(
+    return await crypto.subtle.importKey(
         "raw",
         new TextEncoder().encode(secret),
         { name: "HMAC", hash: "SHA-256" },
@@ -16,59 +31,54 @@ async function importKey(secret) {
     );
 }
 
+// Firmar JWT
 async function signJWT(payload, secret) {
-    const key = await importKey(secret);
     const header = { alg: "HS256", typ: "JWT" };
+    const base64Header = toBase64Url(JSON.stringify(header));
+    const base64Payload = toBase64Url(JSON.stringify(payload));
 
-    const base64 = obj =>
-        btoa(JSON.stringify(obj))
-            .replace(/=/g, "")
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_");
+    const data = `${base64Header}.${base64Payload}`;
+    const key = await importKey(secret);
 
-    const data = `${base64(header)}.${base64(payload)}`;
-
-    const signatureBuffer = await crypto.subtle.sign(
-        "HMAC",
-        key,
-        new TextEncoder().encode(data)
+    const signatureArray = new Uint8Array(
+        await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data))
     );
 
-    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
-        .replace(/=/g, "")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_");
+    const signature = toBase64Url(String.fromCharCode(...signatureArray));
 
     return `${data}.${signature}`;
 }
 
+// Verificar JWT usando WebCrypto
 async function verifyJWT(token, secret) {
-    const [h, p, s] = token.split(".");
-    if (!h || !p || !s) throw new Error("Token inválido");
+    const [header, payload, signature] = token.split(".");
 
+    if (!header || !payload || !signature) {
+        throw new Error("Token malformado");
+    }
+
+    const data = `${header}.${payload}`;
     const key = await importKey(secret);
 
-    const data = `${h}.${p}`;
-
-    const signatureBinary = Uint8Array.from(
-        atob(s.replace(/-/g, "+").replace(/_/g, "/")),
+    const signatureArray = Uint8Array.from(
+        atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
         c => c.charCodeAt(0)
     );
 
     const valid = await crypto.subtle.verify(
         "HMAC",
         key,
-        signatureBinary,
+        signatureArray,
         new TextEncoder().encode(data)
     );
 
-    if (!valid) throw new Error("Firma no válida");
+    if (!valid) throw new Error("Firma inválida");
 
-    return JSON.parse(atob(p));
+    return fromBase64Url(payload);
 }
 
 // =====================================================
-// 1) AUTHENTICATE
+// AUTHENTICATION - Edge Safe
 // =====================================================
 async function authenticate(req, res, next) {
     try {
@@ -82,9 +92,15 @@ async function authenticate(req, res, next) {
 
         const decoded = await verifyJWT(token, process.env.JWT_SECRET);
 
+        // Expiración manual (ya que no usamos jsonwebtoken)
+        if (decoded.exp && decoded.exp < Date.now() / 1000) {
+            return res.status(401).json({ error: "Token expirado" });
+        }
+
         req.user = decoded;
+
         next();
-    } catch (err) {
+    } catch (error) {
         return res.status(401).json({ error: "Token inválido" });
     }
 }
@@ -92,33 +108,28 @@ async function authenticate(req, res, next) {
 const authRequired = authenticate;
 
 // =====================================================
-// 2) isUser
+// ROLES
 // =====================================================
 function isUser(req, res, next) {
-    if (!req.user) {
-        return res.status(401).json({ error: "Usuario no autenticado" });
-    }
+    if (!req.user) return res.status(401).json({ error: "No autenticado" });
     next();
 }
 
-// =====================================================
-// 3) SOLO ADMIN
-// =====================================================
 function isAdmin(req, res, next) {
     if (!req.user) return res.status(401).json({ error: "No autenticado" });
 
     if (req.user.role !== "admin") {
-        return res.status(403).json({ error: "Acceso solo administradores" });
+        return res.status(403).json({ error: "Solo administradores" });
     }
 
     next();
 }
 
 // =====================================================
-// 4) VALIDACIONES
+// VALIDADORES
 // =====================================================
 function validateId(req, res, next) {
-    const id = req.params.id;
+    const id = req.params?.id;
     if (!id || isNaN(id)) {
         return res.status(400).json({ error: "ID inválido" });
     }
@@ -128,9 +139,9 @@ function validateId(req, res, next) {
 function sanitizeBody(req, res, next) {
     if (!req.body) return next();
 
-    for (const k in req.body) {
-        if (typeof req.body[k] === "string") {
-            req.body[k] = req.body[k]
+    for (const key in req.body) {
+        if (typeof req.body[key] === "string") {
+            req.body[key] = req.body[key]
                 .trim()
                 .replace(/<script.*?>.*?<\/script>/gi, "")
                 .replace(/[<>]/g, "");
@@ -140,7 +151,6 @@ function sanitizeBody(req, res, next) {
     next();
 }
 
-// PRODUCTO
 function validateProduct(req, res, next) {
     const { name, category, price, stock } = req.body;
 
@@ -159,7 +169,6 @@ function validateProduct(req, res, next) {
     next();
 }
 
-// REGISTER
 function validateRegister(req, res, next) {
     const { name, email, password } = req.body;
 
@@ -168,15 +177,12 @@ function validateRegister(req, res, next) {
     }
 
     if (password.length < 6) {
-        return res.status(400).json({
-            error: "La contraseña debe tener mínimo 6 caracteres"
-        });
+        return res.status(400).json({ error: "Minimo 6 caracteres" });
     }
 
     next();
 }
 
-// LOGIN
 function validateLogin(req, res, next) {
     const { email, password } = req.body;
 
@@ -188,34 +194,34 @@ function validateLogin(req, res, next) {
 }
 
 // =====================================================
-// 5) RATE LIMIT SIMPLE
+// RATE LIMIT
 // =====================================================
 const rateMap = new Map();
 
-function rateLimit(maxRequests, windowMs) {
+function rateLimit(max, ms) {
     return (req, res, next) => {
         const ip = req.ip || "unknown";
         const now = Date.now();
 
         if (!rateMap.has(ip)) rateMap.set(ip, []);
 
-        const attempts = rateMap.get(ip);
+        const requests = rateMap.get(ip);
 
-        while (attempts.length && attempts[0] <= now - windowMs) {
-            attempts.shift();
+        while (requests.length && requests[0] <= now - ms) {
+            requests.shift();
         }
 
-        if (attempts.length >= maxRequests) {
+        if (requests.length >= max) {
             return res.status(429).json({ error: "Too Many Requests" });
         }
 
-        attempts.push(now);
+        requests.push(now);
         next();
     };
 }
 
 // =====================================================
-// 6) ASYNC HANDLER
+// asyncHandler
 // =====================================================
 function asyncHandler(fn) {
     return (req, res, next) => {
@@ -224,20 +230,21 @@ function asyncHandler(fn) {
 }
 
 // =====================================================
-// 7) GENERAR TOKEN (Edge-SAFE)
+// GENERATE TOKEN (EDGE SAFE)
 // =====================================================
 async function generateToken(id, role) {
-    const payload = {
-        id,
-        role,
-        exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 // 7 días
-    };
-
-    return await signJWT(payload, process.env.JWT_SECRET);
+    return await signJWT(
+        {
+            id,
+            role,
+            exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 // 7 días
+        },
+        process.env.JWT_SECRET
+    );
 }
 
 // =====================================================
-// EXPORTAR
+// EXPORTS
 // =====================================================
 module.exports = {
     authRequired,
