@@ -21,7 +21,9 @@ app.use(cors({
         "http://127.0.0.1:8080",
         "https://haciendoProyectos.online",
         "http://haciendoProyectos.online",
-        "https://sistema-gestion-agronova-1.onrender.com"
+        "https://sistema-gestion-agronova-1.onrender.com",
+        "https://sistema-gestion-agronova-4ilb-24id44cc1-ls-projects-565d7927.vercel.app",
+        "https://sistema-gestion-agronova-4ilb.vercel.app"
     ],
     credentials: true
 }))
@@ -152,4 +154,5 @@ function startServer(portIndex = 0) {
 }
 
 startServer();
+
 
